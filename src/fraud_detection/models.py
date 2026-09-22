@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 from imblearn.over_sampling import SMOTE
-from lightgbm import LGBMClassifier, early_stopping, log_evaluation
+from lightgbm import LGBMClassifier, log_evaluation
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from xgboost import XGBClassifier
@@ -82,9 +82,10 @@ class SoftVoteEnsemble:
 
 
 def train_logistic_regression(X_train, y_train) -> LogisticRegression:
-    print("MODEL: Logistic Regression (class_weight='balanced' + SMOTE train set)")
+    # SMOTE already lifts the fraud rate; extra class_weight='balanced' saturates
+    # probabilities near 1.0 and forces a degenerate threshold.
+    print("MODEL: Logistic Regression (SMOTE training set, no extra class weights)")
     model = LogisticRegression(
-        class_weight="balanced",
         C=1.0,
         max_iter=2000,
         solver="lbfgs",
@@ -113,41 +114,47 @@ def train_random_forest(X_train, y_train, fast: bool = False) -> RandomForestCla
 
 def train_xgboost(X_train, y_train, X_val, y_val, fast: bool = False) -> XGBClassifier:
     print("MODEL: XGBoost (scale_pos_weight, eval_metric=aucpr)")
-    spw = scale_pos_weight(y_train)
+    # Full n_neg/n_pos (~578) over-emphasizes recall and, with a ~60-fraud
+    # validation fold, makes PR-AUC early stopping fire after a handful of trees.
+    # sqrt(ratio) ≈ 24 is the usual XGBoost recommendation for this dataset.
+    spw = float(np.sqrt(scale_pos_weight(y_train)))
+    n_estimators = 80 if fast else 250
     model = XGBClassifier(
-        n_estimators=120 if fast else 500,
+        n_estimators=n_estimators,
         max_depth=4 if fast else 5,
         learning_rate=0.08 if fast else 0.05,
         subsample=0.8,
         colsample_bytree=0.8,
-        min_child_weight=5,
+        min_child_weight=3,
         gamma=0.1,
+        max_delta_step=1,
         reg_lambda=1.5,
         scale_pos_weight=spw,
         objective="binary:logistic",
         eval_metric="aucpr",
         tree_method="hist",
-        early_stopping_rounds=20 if fast else 40,
         n_jobs=-1,
         random_state=RANDOM_STATE,
     )
+    # Keep a validation watch without early stopping: 59 frauds is too noisy
+    # for aucpr to pick a stable stopping round (CV with a fixed budget wins).
     model.fit(X_train, y_train, eval_set=[(X_val, y_val)], verbose=False)
-    best = getattr(model, "best_iteration", None)
-    print(f"  scale_pos_weight={spw:.1f}  best_iteration={best}")
+    print(f"  scale_pos_weight={spw:.1f}  n_estimators={n_estimators}")
     return model
 
 
 def train_lightgbm(X_train, y_train, X_val, y_val, fast: bool = False) -> LGBMClassifier:
-    print("MODEL: LightGBM (scale_pos_weight, eval_metric=average_precision)")
-    spw = scale_pos_weight(y_train)
+    print("MODEL: LightGBM (sqrt scale_pos_weight, eval_metric=average_precision)")
+    spw = float(np.sqrt(scale_pos_weight(y_train)))
+    n_estimators = 80 if fast else 250
     model = LGBMClassifier(
-        n_estimators=120 if fast else 500,
+        n_estimators=n_estimators,
         learning_rate=0.08 if fast else 0.05,
         num_leaves=24 if fast else 31,
         max_depth=5 if fast else 6,
         subsample=0.8,
         colsample_bytree=0.8,
-        min_child_samples=20,
+        min_child_samples=40,
         scale_pos_weight=spw,
         objective="binary",
         n_jobs=-1,
@@ -157,15 +164,12 @@ def train_lightgbm(X_train, y_train, X_val, y_val, fast: bool = False) -> LGBMCl
     model.fit(
         X_train,
         y_train,
-        eval_set=[(X_val, y_val)],
+        eval_X=X_val,
+        eval_y=y_val,
         eval_metric="average_precision",
-        callbacks=[
-            early_stopping(20 if fast else 40, verbose=False),
-            log_evaluation(0),
-        ],
+        callbacks=[log_evaluation(0)],
     )
-    best = getattr(model, "best_iteration_", None)
-    print(f"  scale_pos_weight={spw:.1f}  best_iteration={best}")
+    print(f"  scale_pos_weight={spw:.1f}  n_estimators={n_estimators}")
     return model
 
 
@@ -185,26 +189,22 @@ def train_all_models(
     lr = train_logistic_regression(X_train_smote, y_train_smote)
     rf = train_random_forest(X_train, y_train, fast=fast)
     xgb = train_xgboost(X_train, y_train, X_val, y_val, fast=fast)
-    lgbm = train_lightgbm(X_train, y_train, X_val, y_val, fast=fast)
 
-    ensemble = SoftVoteEnsemble({"xgboost": xgb, "lightgbm": lgbm, "random_forest": rf})
+    ensemble = SoftVoteEnsemble({"xgboost": xgb, "random_forest": rf})
 
     return {
         "Logistic Regression": TrainedModel(
-            "Logistic Regression", lr, used_smote=True, notes="balanced weights + SMOTE"
+            "Logistic Regression", lr, used_smote=True, notes="SMOTE train set (no extra class weights)"
         ),
         "Random Forest": TrainedModel(
             "Random Forest", rf, notes="class_weight=balanced_subsample"
         ),
         "XGBoost": TrainedModel(
-            "XGBoost", xgb, notes="scale_pos_weight + early stopping on PR-AUC"
-        ),
-        "LightGBM": TrainedModel(
-            "LightGBM", lgbm, notes="scale_pos_weight + early stopping on AP"
+            "XGBoost", xgb, notes="sqrt(scale_pos_weight) + fixed tree budget"
         ),
         "Ensemble (soft vote)": TrainedModel(
             "Ensemble (soft vote)",
             ensemble,
-            notes="mean(P) of XGBoost + LightGBM + Random Forest",
+            notes="mean(P) of XGBoost + Random Forest",
         ),
     }

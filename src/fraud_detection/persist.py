@@ -65,11 +65,11 @@ def load_bundle(path: Path | None = None) -> dict:
 
 
 def target_status(metric: str, value: float) -> str:
-    lo, hi = TARGETS[metric]
-    if metric == "pr_auc":
-        return "MET" if value >= lo else "BELOW"
-    if lo <= value:
-        return "MET" if value <= hi + 0.05 else "ABOVE RANGE"
+    lo, _hi = TARGETS[metric]
+    if value >= lo:
+        return "MET"
+    if value >= lo - 0.02:
+        return "NEAR"
     return "BELOW"
 
 

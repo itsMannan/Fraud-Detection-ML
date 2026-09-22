@@ -301,9 +301,11 @@ def plot_scorecard(
     out_dir: Path = FIGURES,
 ) -> Path:
     """Dashboard-style screenshot of hold-out scores for the README."""
-    fig = plt.figure(figsize=(14.5, 8.6))
+    fig = plt.figure(figsize=(14.2, 10.4))
     fig.patch.set_facecolor("#f7fafc")
-    gs = fig.add_gridspec(3, 4, height_ratios=[0.55, 1.15, 1.35], hspace=0.42, wspace=0.28)
+    gs = fig.add_gridspec(
+        4, 4, height_ratios=[0.48, 1.05, 1.55, 1.2], hspace=0.38, wspace=0.22
+    )
 
     header = fig.add_subplot(gs[0, :])
     header.set_xlim(0, 1)
@@ -378,46 +380,59 @@ def plot_scorecard(
             fontweight="bold",
         )
 
-    ax_cm = fig.add_subplot(gs[2, 0:2])
-    cm = np.array([[metrics["tn"], metrics["fp"]], [metrics["fn"], metrics["tp"]]])
-    sns.heatmap(
-        cm,
-        annot=True,
-        fmt=",d",
-        cmap="Blues",
-        cbar=False,
-        ax=ax_cm,
-        annot_kws={"size": 13, "weight": "bold"},
-        xticklabels=["Predicted legitimate", "Predicted fraud"],
-        yticklabels=["Actual legitimate", "Actual fraud"],
-    )
+    ax_cm = fig.add_subplot(gs[2, :])
+    ax_cm.set_xlim(0, 4)
+    ax_cm.set_ylim(0, 2.15)
+    ax_cm.axis("off")
     ax_cm.set_title(
         f"Confusion matrix  ·  threshold={metrics['threshold']:.3f}  ·  "
-        f"MCC={metrics['mcc']:.3f}"
+        f"MCC={metrics['mcc']:.3f}",
+        pad=8,
     )
+    cells = [
+        (0.15, 1.05, metrics["tn"], "True negative\nActual legit · Pred legit", PALETTE["legit"]),
+        (2.05, 1.05, metrics["fp"], "False positive\nActual legit · Pred fraud", PALETTE["warn"]),
+        (0.15, 0.05, metrics["fn"], "False negative\nActual fraud · Pred legit", PALETTE["fraud"]),
+        (2.05, 0.05, metrics["tp"], "True positive\nActual fraud · Pred fraud", PALETTE["accent"]),
+    ]
+    for x, y, val, label, color in cells:
+        ax_cm.add_patch(
+            plt.Rectangle((x, y), 1.8, 0.95, facecolor=color, alpha=0.14, edgecolor=color, lw=2)
+        )
+        ax_cm.text(
+            x + 0.9,
+            y + 0.62,
+            f"{val:,}",
+            ha="center",
+            va="center",
+            fontsize=22,
+            fontweight="bold",
+            color=PALETTE["header"],
+        )
+        ax_cm.text(x + 0.9, y + 0.28, label, ha="center", va="center", fontsize=9, color=PALETTE["muted"])
 
-    ax_tbl = fig.add_subplot(gs[2, 2:4])
+    ax_tbl = fig.add_subplot(gs[3, :])
     ax_tbl.axis("off")
+    ax_tbl.set_title("All models on the same hold-out test set", pad=8)
     cols = ["precision", "recall", "f1", "pr_auc", "roc_auc"]
-    cell = comparison[cols].copy()
-    cell = cell.round(3)
+    cell = comparison[cols].copy().round(3)
+    row_labels = [str(i).replace(" (soft vote)", "") for i in cell.index]
     table = ax_tbl.table(
         cellText=cell.values,
-        rowLabels=list(cell.index),
-        colLabels=["Prec", "Rec", "F1", "PR-AUC", "ROC-AUC"],
+        rowLabels=row_labels,
+        colLabels=["Precision", "Recall", "F1", "PR-AUC", "ROC-AUC"],
         loc="center",
         cellLoc="center",
+        bbox=[0.12, 0.05, 0.86, 0.88],
     )
     table.auto_set_font_size(False)
-    table.set_fontsize(9)
-    table.scale(1.15, 1.55)
+    table.set_fontsize(10)
     for (r, c), cell_obj in table.get_celld().items():
         if r == 0:
             cell_obj.set_facecolor(PALETTE["header"])
             cell_obj.set_text_props(color="white", fontweight="bold")
         elif r % 2 == 0:
             cell_obj.set_facecolor("#edf2f7")
-    ax_tbl.set_title("All models on the same hold-out test set", pad=12)
 
     return _save(fig, "scorecard", out_dir)
 

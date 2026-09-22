@@ -19,11 +19,8 @@ env/
 .ipynb_checkpoints/
 .DS_Store
 
-# Large model binaries (JSON/xgb + metrics are committed)
-artifacts/models/*.pkl
-artifacts/models/*.pickle
-artifacts/models/*.joblib
-artifacts/models/*.ubj
+artifacts/reports/test_risk_scores.csv
+artifacts/reports/train.log
 
 # Logs
 *.log

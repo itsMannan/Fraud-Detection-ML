@@ -8,7 +8,6 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from lightgbm import LGBMClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import average_precision_score
@@ -253,20 +252,12 @@ def run_pipeline(
                 learning_rate=0.1,
                 subsample=0.8,
                 colsample_bytree=0.8,
-                scale_pos_weight=spw,
+                max_delta_step=1,
+                scale_pos_weight=float(np.sqrt(spw)),
                 eval_metric="aucpr",
                 tree_method="hist",
                 n_jobs=-1,
                 random_state=RANDOM_STATE,
-            ),
-            "LightGBM": LGBMClassifier(
-                n_estimators=n_est,
-                learning_rate=0.1,
-                num_leaves=31,
-                scale_pos_weight=spw,
-                n_jobs=-1,
-                random_state=RANDOM_STATE,
-                verbosity=-1,
             ),
         }
         X_cv, y_cv = _subsample_stratified(
