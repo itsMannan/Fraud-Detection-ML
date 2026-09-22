@@ -1,0 +1,31 @@
+# Data (full ULB CSV is ~144MB; downloaded at runtime)
+data/creditcard.csv
+data/*.csv
+!data/.gitkeep
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Notebooks / OS
+.ipynb_checkpoints/
+.DS_Store
+
+# Large model binaries (JSON/xgb + metrics are committed)
+artifacts/models/*.pkl
+artifacts/models/*.pickle
+artifacts/models/*.joblib
+artifacts/models/*.ubj
+
+# Logs
+*.log
+.coverage
+htmlcov/
